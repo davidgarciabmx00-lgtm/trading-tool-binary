@@ -148,3 +148,94 @@ La interfaz se divide en la barra lateral de configuración y el área principal
 ## 📜 Licencia
 
 Este proyecto está bajo la Licencia MIT. Consulta el archivo [LICENSE](LICENSE) para más detalles.
+
+
+Aquí tienes una lista de símbolos populares y viables para usar con `yfinance`, organizados por categoría. He incluido el formato exacto que necesitas pegar en la aplicación.
+
+---
+
+### 📈 Acciones (Stocks) - Mercado Estadounidense
+
+Estos son los más líquidos y populares del mundo. Ideales para cualquier estrategia.
+
+| Símbolo | Nombre de la Empresa | Sector |
+| :--- | :--- | :--- |
+| `AAPL` | Apple Inc. | Tecnología |
+| `MSFT` | Microsoft Corporation | Tecnología |
+| `GOOGL` | Alphabet Inc. (Google) | Tecnología |
+| `AMZN` | Amazon.com Inc. | Consumo Discrecional |
+| `NVDA` | NVIDIA Corporation | Semiconductores |
+| `TSLA` | Tesla Inc. | Automoción |
+| `META` | Meta Platforms Inc. (Facebook) | Tecnología |
+| `JPM` | JPMorgan Chase & Co. | Finanzas |
+| `V` | Visa Inc. | Finanzas |
+| `WMT` | Walmart Inc. | Consumo Básico |
+
+---
+
+### 🌍 Índices Bursátiles (Stock Indices)
+
+Los índices reflejan el sentimiento general del mercado. Son excelentes para estrategias a medio y largo plazo. **Importante:** Usan el prefijo `^`.
+
+| Símbolo | Nombre del Índice | País |
+| :--- | :--- | :--- |
+| `^GSPC` | S&P 500 | EE. UU. |
+| `^DJI` | Dow Jones Industrial Average | EE. UU. |
+| `^IXIC` | NASDAQ Composite | EE. UU. |
+| `^GDAXI` | DAX | Alemania |
+| `^FTSE` | FTSE 100 | Reino Unido |
+| `^N225` | Nikkei 225 | Japón |
+
+---
+
+### 💱 Divisas (Forex)
+
+El mercado de divisas es el más grande del mundo y funciona 24/5. Perfecto para timeframes cortos (`5m`, `15m`, `1h`). **Importante:** Usan el formato `PAR=X`.
+
+| Símbolo | Par de Divisas | Descripción |
+| :--- | :--- | :--- |
+| `EURUSD=X` | Euro / Dólar Americano | El par más negociado del mundo. |
+| `GBPUSD=X` | Libra Esterlina / Dólar | Conocido como "Cable". |
+| `USDJPY=X` | Dólar / Yen Japonés | Muy popular en Asia. |
+| `AUDUSD=X` | Dólar Australiano / Dólar | Vinculado a materias primas. |
+| `USDCAD=X` | Dólar / Dólar Canadiense | "Loonie". |
+| `USDCHF=X` | Dólar / Franco Suizo | Considerado un valor refugio. |
+
+---
+
+### 🛢️ Materias Primas (Commodities)
+
+Activos muy influidos por la oferta, la demanda y factores geopolíticos. **Importante:** Usan el sufijo `=F` para contratos de futuros.
+
+| Símbolo | Materias Primas | Descripción |
+| :--- | :--- | :--- |
+| `GC=F` | Oro (Ounce) | El valor refugio por excelencia. |
+| `SI=F` | Plata (Ounce) | El "hermano pequeño" del oro. |
+| `CL=F` | Petróleo Crudo WTI (Barrel) | El petróleo más referenciado. |
+| `NG=F` | Gas Natural | Muy volátil, sensible al clima. |
+
+---
+
+### ₿ Criptomonedas (Cryptocurrencies)
+
+Un mercado de alta volatilidad, disponible 24/7. Ideal para traders que buscan movimientos grandes y rápidos. **Importante:** Usan el formato `TICKER-USD`.
+
+| Símbolo | Criptomoneda | Descripción |
+| :--- | :--- | :--- |
+| `BTC-USD` | Bitcoin / USD | La criptomoneda original y líder. |
+| `ETH-USD` | Ethereum / USD | La segunda más grande, con contratos inteligentes. |
+| `BNB-USD` | Binance Coin / USD | Token del exchange más grande. |
+| `XRP-USD` | Ripple / USD | Enfocada en transferencias bancarias. |
+| `SOL-USD` | Solana / USD | Conocida por su velocidad. |
+| `ADA-USD` | Cardano / USD | Una plataforma de blockchain robusta. |
+
+---
+
+### ⚠️ Consideraciones Importantes
+
+1.  **Liquidez es Clave**: He elegido estos símbolos porque son los que más volumen tienen. Esto significa que los patrones técnicos tienden a ser más fiables.
+2.  **Timeframes y Activos**:
+    *   **Forex y Cripto**: Funcionan muy bien en timeframes cortos (`5m`, `15m`, `1h`) por su alta volatilidad y actividad continua.
+    *   **Acciones e Índices**: A menudo dan mejores resultados en timeframes más largos (`1h`, `1d`), donde el ruido del mercado a corto plazo es menor.
+3.  **Cómo Verificar un Símbolo**: ¿No estás seguro si un símbolo funciona? Puedes probarlo rápidamente con este pequeño código en Python:
+

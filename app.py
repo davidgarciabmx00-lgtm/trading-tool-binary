@@ -16,10 +16,19 @@ st.title("🤖 Herramienta de Trading con Machine Learning")
 st.sidebar.header("Parámetros de Configuración")
 ACTIVO = st.sidebar.text_input("Símbolo del Activo", value="AAPL")
 TIMEFRAME = st.sidebar.selectbox("Timeframe", ['1d', '1h', '5m'], index=0)
-PERIODO = st.sidebar.selectbox("Período de Datos", ['1y', '2y', '5y'], index=1)
 
-# --- MEJORA: Añadida una guía para el usuario ---
-st.sidebar.info("💡 **Tip:** Si un símbolo de cripto (ej. BNB-USD) falla, la app intentará automáticamente con BNB=X. Para datos de 5m, usa un período corto (ej. 60d).")
+# --- MEJORA CLAVE: Selección de período dinámica para evitar errores de descarga ---
+# El período de datos se ajusta automáticamente según el timeframe para no exceder los límites de la API.
+period_options = {
+    '5m': ['60d', '6mo'],
+    '1h': ['60d', '6mo', '1y'],
+    '1d': ['1y', '2y', '5y']
+}
+valid_periods = period_options.get(TIMEFRAME, ['1y'])
+PERIODO = st.sidebar.selectbox("Período de Datos", valid_periods, index=0)
+
+# --- MEJORA: Mensaje de ayuda actualizado ---
+st.sidebar.info("💡 **Tip:** El 'Período de Datos' se ajusta automáticamente según el 'Timeframe' para evitar errores de descarga. Para datos de 5m, el máximo es 6 meses.")
 
 # --- NUEVO: MODO DE OPERACIÓN ---
 st.sidebar.header("Modo de Operación")
@@ -147,7 +156,6 @@ if datos_historicos is not None:
         (datos_historicos['RSI_14'] > 30)
     )
 
-    # --- CORRECCIÓN: Indentación corregida para el bloque de ML ---
     # Estrategia 6: Machine Learning (Random Forest)
     datos_historicos['senal_ml'] = False
     if ESTRATEGIA == 'Machine Learning (RF)':

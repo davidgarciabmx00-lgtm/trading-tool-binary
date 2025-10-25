@@ -137,18 +137,12 @@ if datos_historicos is not None:
         (datos_historicos['RSI_14'] > 30) # Evitar zonas de sobreventa extrema
     )
 
-    # Estrategia 6: Machine Learning (Random Forest)
+        # Estrategia 6: Machine Learning (Random Forest)
     datos_historicos['senal_ml'] = False
     if ESTRATEGIA == 'Machine Learning (RF)':
         st.subheader("🧠 Entrenando Modelo de Machine Learning...")
         
-        # 1. Feature Engineering (Variables para el modelo)
-        features = ['EMA_20', 'EMA_50', 'RSI_14', 'ATRr_14', 'Volume_SMA', 'MACD_12_26_9', 'MACDh_12_26_9', 'STOCHk_14_3_3', 'VWAP_D']
-        df_ml = datos_historicos[features].copy()
-        df_ml.dropna(inplace=True)
-
         # --- MODIFICADO: Target Variable dinámica para ML ---
-        # Predecir si el precio subirá en el tiempo de expiración de la binaria o en 5 días (modo tradicional)
         if MODO_BINARIAS:
             # Convertimos el timeframe a minutos para calcular los pasos de expiración
             timeframe_minutes = int(TIMEFRAME.replace('m', '').replace('h', '60').replace('d', '1440'))
@@ -157,32 +151,45 @@ if datos_historicos is not None:
         else:
             prediction_horizon = 5 # Mantenemos el valor original para el modo tradicional
 
-        df_ml['target'] = datos_historicos['Close'].shift(-prediction_horizon) > datos_historicos['Close']
-        df_ml.dropna(inplace=True)
-        
-        # 3. Dividir datos en entrenamiento y prueba (cronológicamente)
-        X = df_ml.drop('target', axis=1)
-        y = df_ml['target']
-        split_index = int(len(X) * 0.8)
-        X_train, X_test = X[:split_index], X[split_index:]
-        y_train, y_test = y[:split_index], y[split_index:]
+        # --- NUEVO: Validación para evitar el error ---
+        if prediction_horizon < 1:
+            st.error(f"⚠️ Error de Configuración: El tiempo de expiración ({EXPIRACION_MINUTOS} min) es menor que el timeframe de los datos ({TIMEFRAME}). No se puede entrenar el modelo. Por favor, elige un tiempo de expiración mayor o igual al timeframe.")
+        else:
+            # 1. Feature Engineering (Variables para el modelo)
+            features = ['EMA_20', 'EMA_50', 'RSI_14', 'ATRr_14', 'Volume_SMA', 'MACD_12_26_9', 'MACDh_12_26_9', 'STOCHk_14_3_3', 'VWAP_D']
+            df_ml = datos_historicos[features].copy()
+            df_ml.dropna(inplace=True)
 
-        # 4. Entrenar el modelo
-        model = RandomForestClassifier(n_estimators=100, min_samples_leaf=10, random_state=42)
-        model.fit(X_train, y_train)
-        st.success("✅ Modelo entrenado con éxito.")
+            df_ml['target'] = datos_historicos['Close'].shift(-prediction_horizon) > datos_historicos['Close']
+            df_ml.dropna(inplace=True)
+            
+            # Verificación adicional por si acaso (buena práctica)
+            if df_ml['target'].nunique() < 2:
+                st.warning("⚠️ Advertencia: La variable objetivo para el modelo solo contiene una clase. No se puede entrenar un modelo de clasificación útil con estos parámetros. Prueba cambiando el activo, el período o la expiración.")
+            else:
+                # 3. Dividir datos en entrenamiento y prueba (cronológicamente)
+                X = df_ml.drop('target', axis=1)
+                y = df_ml['target']
+                split_index = int(len(X) * 0.8)
+                X_train, X_test = X[:split_index], X[split_index:]
+                y_train, y_test = y[:split_index], y[split_index:]
 
-        # 5. Predecir probabilidades
-        probabilidades = model.predict_proba(df_ml[features])[:, 1]
-        
-        df_ml['probabilidad_subida'] = probabilidades
-        df_ml['senal_ml_pred'] = df_ml['probabilidad_subida'] > ML_THRESHOLD
-        
-        datos_historicos = datos_historicos.join(df_ml[['senal_ml_pred', 'probabilidad_subida']], how='left')
-        datos_historicos['senal_ml'] = datos_historicos['senal_ml_pred'].fillna(False)
-        
-        accuracy = model.score(X_test, y_test)
-        st.info(f"Precisión del modelo en datos de prueba: {accuracy:.2f}")
+                # 4. Entrenar el modelo
+                model = RandomForestClassifier(n_estimators=100, min_samples_leaf=10, random_state=42)
+                model.fit(X_train, y_train)
+                st.success("✅ Modelo entrenado con éxito.")
+
+                # 5. Predecir probabilidades
+                probabilidades = model.predict_proba(df_ml[features])[:, 1] # Esta línea ahora funcionará
+                
+                df_ml['probabilidad_subida'] = probabilidades
+                df_ml['senal_ml_pred'] = df_ml['probabilidad_subida'] > ML_THRESHOLD
+                
+                datos_historicos = datos_historicos.join(df_ml[['senal_ml_pred', 'probabilidad_subida']], how='left')
+                datos_historicos['senal_ml'] = datos_historicos['senal_ml_pred'].fillna(False)
+                
+                accuracy = model.score(X_test, y_test)
+                st.info(f"Precisión del modelo en datos de prueba: {accuracy:.2f}")
 
     # --- Seleccionar la estrategia final ---
     if ESTRATEGIA == 'Momentum':
@@ -370,3 +377,4 @@ if datos_historicos is not None:
     
     fig.update_layout(xaxis_rangeslider_visible=False, height=1400, showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
+

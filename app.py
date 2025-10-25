@@ -18,6 +18,9 @@ ACTIVO = st.sidebar.text_input("Símbolo del Activo", value="AAPL")
 TIMEFRAME = st.sidebar.selectbox("Timeframe", ['1d', '1h', '5m'], index=0)
 PERIODO = st.sidebar.selectbox("Período de Datos", ['1y', '2y', '5y'], index=1)
 
+# --- MEJORA: Añadida una guía para el usuario ---
+st.sidebar.info("💡 **Tip:** Si un símbolo de cripto (ej. BNB-USD) falla, la app intentará automáticamente con BNB=X. Para datos de 5m, usa un período corto (ej. 60d).")
+
 # --- NUEVO: MODO DE OPERACIÓN ---
 st.sidebar.header("Modo de Operación")
 MODO_BINARIAS = st.sidebar.checkbox("Activar Modo Opciones Binarias", value=False, help="Activa el simulador de Opciones Binarias con expiración fija.")
@@ -32,7 +35,6 @@ TRAILING_STOP_PCT = st.sidebar.slider("Trailing Stop (%)", 1, 20, 3) / 100
 # --- NUEVO: Parámetros para Opciones Binarias ---
 if MODO_BINARIAS:
     st.sidebar.subheader("Parámetros de Opciones Binarias")
-    # El tiempo de expiración es CRUCIAL. Debe coincidir con los datos.
     EXPIRACION_MINUTOS = st.sidebar.selectbox("Tiempo de Expiración", [5, 15, 30, 60, 240], index=0, help="Tiempo hasta que la opción caduca.")
     PAYOUT_PCT = st.sidebar.slider("Porcentaje de Pago (%)", 70, 95, 85) / 100
     INVERSION_POR_OPERACION = st.sidebar.number_input("Inversión por Operación ($)", value=100, min_value=1)
@@ -41,36 +43,59 @@ if MODO_BINARIAS:
 st.sidebar.header("Estrategia de Trading")
 ESTRATEGIA = st.sidebar.selectbox("Selecciona Estrategia", 
                                   ['Momentum', 'Mean Reversion', 'MACD Crossover', 'Stochastic Oscillator', 'VWAP Trading', 'Machine Learning (RF)'], 
-                                  index=5) # Por defecto, la de ML
+                                  index=5)
 
 # Parámetros para la estrategia de ML
-ML_THRESHOLD = 0.6 # Umbral de confianza por defecto
+ML_THRESHOLD = 0.6
 if ESTRATEGIA == 'Machine Learning (RF)':
     st.sidebar.subheader("Parámetros de ML")
     ML_THRESHOLD = st.sidebar.slider("Umbral de Confianza para Comprar (%)", 50, 90, 60) / 100
 
 # --- 2. OBTENER DATOS Y CALCULAR INDICADORES ---
+# --- MEJORA: Función de carga de datos mucho más robusta ---
 @st.cache_data
-def cargar_datos(activo, periodo, intervalo):
-    datos = yf.download(activo, period=periodo, interval=intervalo)
-    if datos.empty:
-        st.error(f"No se pudieron descargar los datos para {activo}. Revisa el símbolo.")
-        return None
-    
-    if isinstance(datos.columns, pd.MultiIndex):
-        st.warning("Los datos tienen un MultiIndex. Aplanando las columnas...")
-        datos.columns = ['_'.join(col).strip() for col in datos.columns.values]
-        datos = datos.rename(columns={
-            'Open_' + activo: 'Open', 'High_' + activo: 'High', 'Low_' + activo: 'Low',
-            'Close_' + activo: 'Close', 'Adj Close_' + activo: 'Adj Close', 'Volume_' + activo: 'Volume'
-        })
-    return datos
+def cargar_datos_robusto(activo, periodo, intervalo):
+    """
+    Función robusta para descargar datos, intentando con símbolos alternativos
+    y manejando errores comunes de yfinance.
+    """
+    simbolos_a_probar = [activo]
+    if activo.endswith('-USD'):
+        simbolos_a_probar.append(activo.replace('-USD', '=X'))
 
-datos_historicos = cargar_datos(ACTIVO, PERIODO, TIMEFRAME)
+    for simbolo in simbolos_a_probar:
+        with st.spinner(f'Descargando datos para {simbolo}...'):
+            try:
+                datos = yf.download(simbolo, period=periodo, interval=intervalo, progress=False)
+                
+                if datos.empty:
+                    st.warning(f"⚠️ No se encontraron datos para '{simbolo}' con la configuración actual (Período: {periodo}, Intervalo: {intervalo}).")
+                    continue
+
+                if isinstance(datos.columns, pd.MultiIndex):
+                    datos.columns = ['_'.join(col).strip() for col in datos.columns.values]
+                    rename_dict = {f'Open_{simbolo}': 'Open', f'High_{simbolo}': 'High', f'Low_{simbolo}': 'Low',
+                                   f'Close_{simbolo}': 'Close', f'Adj Close_{simbolo}': 'Adj Close', f'Volume_{simbolo}': 'Volume'}
+                    datos = datos.rename(columns=rename_dict)
+                
+                st.success(f"✅ Datos descargados exitosamente para '{simbolo}'.")
+                return datos
+
+            except Exception as e:
+                st.warning(f"⚠️ Error al descargar '{simbolo}': {e}. Intentando alternativa...")
+                continue
+    
+    st.error(f"❌ No se pudieron descargar los datos para ningún símbolo de la lista: {simbolos_a_probar}.")
+    st.info("💡 **Posibles soluciones:**")
+    st.info("- Revisa que el símbolo del activo sea correcto (ej. 'AAPL', 'BTC-USD', 'EURUSD=X').")
+    st.info("- Si pides datos intradía (ej. 5m), el período no puede ser muy largo (ej. '2y'). Prueba con '60d' o '6mo'.")
+    st.info("- Asegúrate de tener conexión a internet.")
+    return None
+
+datos_historicos = cargar_datos_robusto(ACTIVO, PERIODO, TIMEFRAME)
 
 if datos_historicos is not None:
     # --- 3. APLICAR ALGORITMOS Y SEÑALES ---
-    # Calcular todos los indicadores necesarios
     datos_historicos.ta.ema(length=20, append=True)
     datos_historicos.ta.ema(length=50, append=True)
     datos_historicos.ta.rsi(length=14, append=True)
@@ -79,20 +104,16 @@ if datos_historicos is not None:
     datos_historicos.ta.vwap(append=True)
     datos_historicos.ta.atr(length=14, append=True)
     
-    # Calcular Bandas de Bollinger manualmente
     bb_length = 20
     bb_std = 2
     datos_historicos['BBM'] = datos_historicos['Close'].rolling(window=bb_length).mean()
     datos_historicos['BBL'] = datos_historicos['BBM'] - (datos_historicos['Close'].rolling(window=bb_length).std() * bb_std)
     datos_historicos['BBU'] = datos_historicos['BBM'] + (datos_historicos['Close'].rolling(window=bb_length).std() * bb_std)
     
-    # Calcular media móvil de volumen
     datos_historicos['Volume_SMA'] = datos_historicos['Volume'].rolling(window=20).mean()
     datos_historicos['volumen_alto'] = datos_historicos['Volume'] > datos_historicos['Volume_SMA'] * 1.2
 
     # --- Definición de Señales para cada Estrategia ---
-    
-    # Estrategia 1: Momentum
     datos_historicos['tendencia_alcista'] = (datos_historicos['Close'] > datos_historicos['EMA_20']) & (datos_historicos['Close'] > datos_historicos['EMA_50'])
     datos_historicos['senal_momentum'] = (
         (datos_historicos['Close'] > datos_historicos['EMA_20']) & 
@@ -101,61 +122,47 @@ if datos_historicos is not None:
         (datos_historicos['RSI_14'] < 70) &
         datos_historicos['volumen_alto']
     )
-
-    # Estrategia 2: Mean Reversion
     datos_historicos['senal_mean_reversion'] = (
         (datos_historicos['Close'] < datos_historicos['BBL']) & 
         (datos_historicos['RSI_14'] < 30) &
         datos_historicos['volumen_alto']
     )
-
-    # Estrategia 3: MACD Crossover
     datos_historicos['senal_macd'] = (
         (datos_historicos['MACD_12_26_9'] > datos_historicos['MACDs_12_26_9']) &
         (datos_historicos['MACD_12_26_9'].shift(1) <= datos_historicos['MACDs_12_26_9'].shift(1)) &
-        (datos_historicos['MACD_12_26_9'] < 0) # Cruce desde abajo de la línea de cero
+        (datos_historicos['MACD_12_26_9'] < 0)
     )
-
-    # Estrategia 4: Stochastic Oscillator
     datos_historicos['senal_stoch'] = (
-        (datos_historicos['STOCHk_14_3_3'] < 20) & # Zona de sobreventa
-        (datos_historicos['STOCHk_14_3_3'] > datos_historicos['STOCHd_14_3_3']) # Cruce alcista
+        (datos_historicos['STOCHk_14_3_3'] < 20) & 
+        (datos_historicos['STOCHk_14_3_3'] > datos_historicos['STOCHd_14_3_3'])
     )
-
-    # Estrategia 5: VWAP Trading
     datos_historicos['senal_vwap'] = (
         (datos_historicos['Close'] < datos_historicos['VWAP_D']) &
         (datos_historicos['Close'].shift(1) >= datos_historicos['VWAP_D'].shift(1)) &
         datos_historicos['volumen_alto']
     )
-    
-    # --- NUEVO: Señal de Venta (PUT) para Opciones Binarias ---
-    # Es una señal simple para demostrar. Se puede mejorar.
     datos_historicos['senal_venta'] = (
         (datos_historicos['Close'] < datos_historicos['EMA_20']) &
         (datos_historicos['Close'].shift(1) >= datos_historicos['EMA_20'].shift(1)) &
-        (datos_historicos['RSI_14'] > 30) # Evitar zonas de sobreventa extrema
+        (datos_historicos['RSI_14'] > 30)
     )
 
-        # Estrategia 6: Machine Learning (Random Forest)
+    # --- CORRECCIÓN: Indentación corregida para el bloque de ML ---
+    # Estrategia 6: Machine Learning (Random Forest)
     datos_historicos['senal_ml'] = False
     if ESTRATEGIA == 'Machine Learning (RF)':
         st.subheader("🧠 Entrenando Modelo de Machine Learning...")
         
-        # --- MODIFICADO: Target Variable dinámica para ML ---
         if MODO_BINARIAS:
-            # Convertimos el timeframe a minutos para calcular los pasos de expiración
             timeframe_minutes = int(TIMEFRAME.replace('m', '').replace('h', '60').replace('d', '1440'))
             expiracion_steps = EXPIRACION_MINUTOS // timeframe_minutes
             prediction_horizon = expiracion_steps
         else:
-            prediction_horizon = 5 # Mantenemos el valor original para el modo tradicional
+            prediction_horizon = 5
 
-        # --- NUEVO: Validación para evitar el error ---
         if prediction_horizon < 1:
-            st.error(f"⚠️ Error de Configuración: El tiempo de expiración ({EXPIRACION_MINUTOS} min) es menor que el timeframe de los datos ({TIMEFRAME}). No se puede entrenar el modelo. Por favor, elige un tiempo de expiración mayor o igual al timeframe.")
+            st.error(f"⚠️ Error de Configuración: El tiempo de expiración ({EXPIRACION_MINUTOS} min) es menor que el timeframe de los datos ({TIMEFRAME}). No se puede entrenar el modelo.")
         else:
-            # 1. Feature Engineering (Variables para el modelo)
             features = ['EMA_20', 'EMA_50', 'RSI_14', 'ATRr_14', 'Volume_SMA', 'MACD_12_26_9', 'MACDh_12_26_9', 'STOCHk_14_3_3', 'VWAP_D']
             df_ml = datos_historicos[features].copy()
             df_ml.dropna(inplace=True)
@@ -163,24 +170,20 @@ if datos_historicos is not None:
             df_ml['target'] = datos_historicos['Close'].shift(-prediction_horizon) > datos_historicos['Close']
             df_ml.dropna(inplace=True)
             
-            # Verificación adicional por si acaso (buena práctica)
             if df_ml['target'].nunique() < 2:
-                st.warning("⚠️ Advertencia: La variable objetivo para el modelo solo contiene una clase. No se puede entrenar un modelo de clasificación útil con estos parámetros. Prueba cambiando el activo, el período o la expiración.")
+                st.warning("⚠️ Advertencia: La variable objetivo para el modelo solo contiene una clase. No se puede entrenar un modelo de clasificación útil con estos parámetros.")
             else:
-                # 3. Dividir datos en entrenamiento y prueba (cronológicamente)
                 X = df_ml.drop('target', axis=1)
                 y = df_ml['target']
                 split_index = int(len(X) * 0.8)
                 X_train, X_test = X[:split_index], X[split_index:]
                 y_train, y_test = y[:split_index], y[split_index:]
 
-                # 4. Entrenar el modelo
                 model = RandomForestClassifier(n_estimators=100, min_samples_leaf=10, random_state=42)
                 model.fit(X_train, y_train)
                 st.success("✅ Modelo entrenado con éxito.")
 
-                # 5. Predecir probabilidades
-                probabilidades = model.predict_proba(df_ml[features])[:, 1] # Esta línea ahora funcionará
+                probabilidades = model.predict_proba(df_ml[features])[:, 1]
                 
                 df_ml['probabilidad_subida'] = probabilidades
                 df_ml['senal_ml_pred'] = df_ml['probabilidad_subida'] > ML_THRESHOLD
@@ -202,40 +205,33 @@ if datos_historicos is not None:
         datos_historicos['senal_compra'] = datos_historicos['senal_stoch']
     elif ESTRATEGIA == 'VWAP Trading':
         datos_historicos['senal_compra'] = datos_historicos['senal_vwap']
-    else: # Machine Learning
+    else:
         datos_historicos['senal_compra'] = datos_historicos['senal_ml']
 
-    # --- 4. BACKTESTER (MODIFICADO PARA BINARIAS) ---
+    # --- 4. BACKTESTER ---
     resultados_operaciones = []
     
     if MODO_BINARIAS:
-        # --- LÓGICA PARA OPCIONES BINARIAS ---
         st.header("Resultados del Backtester (Modo Opciones Binarias)")
         en_posicion = False
         precio_ejecucion = 0
         fecha_ejecucion = None
-        direccion_prediccion = None # 'CALL' o 'PUT'
+        direccion_prediccion = None
         
-        # Calculamos el índice que corresponde a la expiración
         timeframe_minutes = int(TIMEFRAME.replace('m', '').replace('h', '60').replace('d', '1440'))
         expiracion_steps = EXPIRACION_MINUTOS // timeframe_minutes
 
         for i in range(len(datos_historicos) - expiracion_steps):
-            # Señal de COMPRA (CALL)
             if not en_posicion and datos_historicos.iloc[i]['senal_compra']:
                 en_posicion = True
                 precio_ejecucion = datos_historicos.iloc[i]['Close']
                 fecha_ejecucion = datos_historicos.index[i]
                 direccion_prediccion = 'CALL'
-            
-            # Señal de VENTA (PUT)
             elif not en_posicion and datos_historicos.iloc[i]['senal_venta']:
                  en_posicion = True
                  precio_ejecucion = datos_historicos.iloc[i]['Close']
                  fecha_ejecucion = datos_historicos.index[i]
                  direccion_prediccion = 'PUT'
-
-            # Comprobar resultado al llegar la expiración
             elif en_posicion:
                 fecha_expiracion = datos_historicos.index[i + expiracion_steps]
                 precio_en_expiracion = datos_historicos.iloc[i + expiracion_steps]['Close']
@@ -246,21 +242,16 @@ if datos_historicos is not None:
                 elif direccion_prediccion == 'PUT' and precio_en_expiracion < precio_ejecucion:
                     gano = True
                 
-                rentabilidad = PAYOUT_PCT if gano else -1.0 # Gana el PAYOUT o pierde el 100%
+                rentabilidad = PAYOUT_PCT if gano else -1.0
                 
                 resultados_operaciones.append({
-                    'fecha_ejecucion': fecha_ejecucion,
-                    'fecha_expiracion': fecha_expiracion,
-                    'direccion': direccion_prediccion,
-                    'precio_ejecucion': precio_ejecucion,
-                    'precio_expiracion': precio_en_expiracion,
-                    'resultado': 'GANA' if gano else 'PIERDE',
-                    'rentabilidad': rentabilidad,
-                    'beneficio': INVERSION_POR_OPERACION * rentabilidad
+                    'fecha_ejecucion': fecha_ejecucion, 'fecha_expiracion': fecha_expiracion,
+                    'direccion': direccion_prediccion, 'precio_ejecucion': precio_ejecucion,
+                    'precio_expiracion': precio_en_expiracion, 'resultado': 'GANA' if gano else 'PIERDE',
+                    'rentabilidad': rentabilidad, 'beneficio': INVERSION_POR_OPERACION * rentabilidad
                 })
                 en_posicion = False
     else:
-        # --- LÓGICA ORIGINAL DE TRADING TRADICIONAL ---
         st.header("Resultados del Backtester (Modo Tradicional)")
         en_posicion = False
         precio_entrada = 0
@@ -297,7 +288,7 @@ if datos_historicos is not None:
                     })
                     en_posicion = False
 
-    # --- 5. MOSTRAR RESULTADOS (MODIFICADO) ---
+    # --- 5. MOSTRAR RESULTADOS ---
     if not resultados_operaciones:
         st.warning("No se generaron operaciones en el período seleccionado con los parámetros actuales.")
     else:
@@ -307,7 +298,6 @@ if datos_historicos is not None:
         porcentaje_aciertos = (ops_ganadoras / total_ops) * 100
         
         if MODO_BINARIAS:
-            # Métricas para Binarias
             beneficio_total = df_operaciones['beneficio'].sum()
             inversion_total = total_ops * INVERSION_POR_OPERACION
             roi_total = (beneficio_total / inversion_total) * 100 if inversion_total > 0 else 0
@@ -320,7 +310,6 @@ if datos_historicos is not None:
             with st.expander("Ver Detalles de Operaciones Binarias"):
                 st.dataframe(df_operaciones)
         else:
-            # Mantener las métricas originales para Trading Tradicional
             rentabilidad_total = df_operaciones['rentabilidad'].sum()
             rentabilidad_media = df_operaciones['rentabilidad'].mean()
             max_ganancia = df_operaciones['rentabilidad'].max()
@@ -348,33 +337,26 @@ if datos_historicos is not None:
                         subplot_titles=('Precio', 'RSI / Stoch', 'MACD', 'Volumen'), 
                         row_heights=[0.5, 0.2, 0.2, 0.1])
     
-    # Gráfico de Precio
     fig.add_trace(go.Candlestick(x=datos_historicos.index, open=datos_historicos['Open'], high=datos_historicos['High'], low=datos_historicos['Low'], close=datos_historicos['Close'], name='Precio'), row=1, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['EMA_20'], line=dict(color='orange', width=1), name='EMA 20'), row=1, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['EMA_50'], line=dict(color='blue', width=1), name='EMA 50'), row=1, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['VWAP_D'], line=dict(color='purple', width=1, dash='dash'), name='VWAP'), row=1, col=1)
-    # --- MODIFICADO: Mostrar señales de compra y venta en el gráfico ---
     fig.add_trace(go.Scatter(x=datos_historicos[datos_historicos['senal_compra']].index, y=datos_historicos[datos_historicos['senal_compra']]['Close'], mode='markers', marker_symbol='triangle-up', marker_size=12, marker_color='lime', name='Señal Compra (CALL)'), row=1, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos[datos_historicos['senal_venta']].index, y=datos_historicos[datos_historicos['senal_venta']]['Close'], mode='markers', marker_symbol='triangle-down', marker_size=12, marker_color='red', name='Señal Venta (PUT)'), row=1, col=1)
-
     
-    # RSI y Stoch
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['RSI_14'], line=dict(color='purple'), name='RSI 14'), row=2, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['STOCHk_14_3_3'], line=dict(color='blue'), name='Stoch %K'), row=2, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['STOCHd_14_3_3'], line=dict(color='red'), name='Stoch %D'), row=2, col=1)
     fig.add_hline(y=70, line_width=1, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=30, line_width=1, line_dash="dash", line_color="green", row=2, col=1)
-    fig.add_hline(y=80, line_width=1, line_dash="dash", line_color="red", row=2, col=1) # Para Stoch
-    fig.add_hline(y=20, line_width=1, line_dash="dash", line_color="green", row=2, col=1) # Para Stoch
+    fig.add_hline(y=80, line_width=1, line_dash="dash", line_color="red", row=2, col=1)
+    fig.add_hline(y=20, line_width=1, line_dash="dash", line_color="green", row=2, col=1)
 
-    # MACD
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['MACD_12_26_9'], line=dict(color='blue'), name='MACD'), row=3, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['MACDs_12_26_9'], line=dict(color='red'), name='Señal MACD'), row=3, col=1)
     fig.add_trace(go.Bar(x=datos_historicos.index, y=datos_historicos['MACDh_12_26_9'], name='Histograma MACD', marker_color='gray'), row=3, col=1)
 
-    # Volumen
     fig.add_trace(go.Bar(x=datos_historicos.index, y=datos_historicos['Volume'], name='Volumen', marker_color='lightblue'), row=4, col=1)
     
     fig.update_layout(xaxis_rangeslider_visible=False, height=1400, showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
-

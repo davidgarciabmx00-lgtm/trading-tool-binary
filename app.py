@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+import streamlit.components.v1 as components # --- NUEVO: Importar componentes ---
 
 st.set_page_config(layout="wide", initial_sidebar_state="expanded")
 
@@ -29,6 +30,13 @@ PERIODO = st.sidebar.selectbox("Período de Datos", valid_periods, index=0)
 
 # --- MEJORA: Mensaje de ayuda actualizado ---
 st.sidebar.info("💡 **Tip:** El 'Período de Datos' se ajusta automáticamente según el 'Timeframe' para evitar errores de descarga. Para datos de 5m, el máximo es 6 meses.")
+
+# --- NUEVO: Sistema de Actualización Automática ---
+st.sidebar.header("Actualización de Datos")
+# Botón para refrescar manualmente
+refresh_button = st.sidebar.button("🔄 Actualizar Datos Ahora")
+# Slider para controlar el intervalo de actualización automática (en segundos)
+auto_refresh_interval = st.sidebar.slider("Intervalo de Auto-Refresh (segundos)", min_value=30, max_value=600, value=120, step=30)
 
 # --- NUEVO: MODO DE OPERACIÓN ---
 st.sidebar.header("Modo de Operación")
@@ -61,8 +69,11 @@ if ESTRATEGIA == 'Machine Learning (RF)':
     ML_THRESHOLD = st.sidebar.slider("Umbral de Confianza para Comprar (%)", 50, 90, 60) / 100
 
 # --- 2. OBTENER DATOS Y CALCULAR INDICADORES ---
-# --- MEJORA: Función de carga de datos mucho más robusta ---
-@st.cache_data
+# --- MEJORA CLAVE: Función de carga de datos mucho más robusta ---
+# --- MODIFICADO: Añadido `ttl` (Time-To-Live) a la caché ---
+# Esto hace que los datos se consideren "obsoletos" después de 300 segundos (5 minutos)
+# y se volverán a descargar en la siguiente ejecución.
+@st.cache_data(ttl=300) 
 def cargar_datos_robusto(activo, periodo, intervalo):
     """
     Función robusta para descargar datos, intentando con símbolos alternativos
@@ -87,7 +98,7 @@ def cargar_datos_robusto(activo, periodo, intervalo):
                                    f'Close_{simbolo}': 'Close', f'Adj Close_{simbolo}': 'Adj Close', f'Volume_{simbolo}': 'Volume'}
                     datos = datos.rename(columns=rename_dict)
                 
-                st.success(f"✅ Datos descargados exitosamente para '{simbolo}'.")
+                st.success(f"✅ Datos descargados exitosamente para '{simbolo}'. Última actualización: {datos.index[-1]}")
                 return datos
 
             except Exception as e:
@@ -100,6 +111,11 @@ def cargar_datos_robusto(activo, periodo, intervalo):
     st.info("- Si pides datos intradía (ej. 5m), el período no puede ser muy largo (ej. '2y'). Prueba con '60d' o '6mo'.")
     st.info("- Asegúrate de tener conexión a internet.")
     return None
+
+# --- NUEVO: Lógica de refresco ---
+# Si se presiona el botón, se fuerza la rerun de la app.
+if refresh_button:
+    st.rerun()
 
 datos_historicos = cargar_datos_robusto(ACTIVO, PERIODO, TIMEFRAME)
 
@@ -368,3 +384,25 @@ if datos_historicos is not None:
     
     fig.update_layout(xaxis_rangeslider_visible=False, height=1400, showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
+
+# --- NUEVO: Componente HTML/JavaScript para la auto-recarga ---
+# Este componente se ejecuta en el navegador del usuario.
+# Usa setInterval para llamar a una función cada `auto_refresh_interval` segundos.
+# La función busca el botón de refresco por su atributo de datos y lo "pulsa".
+html_code = f"""
+<script>
+    var refresh_button = document.querySelector('[data-testid="stButton"] button');
+    if (refresh_button) {{
+        // Añadimos un atributo para identificarlo fácilmente
+        refresh_button.setAttribute("data-refresh-button", "true"); 
+    }}
+
+    setInterval(function() {{
+        var button_to_click = document.querySelector('[data-refresh-button="true"]');
+        if (button_to_click) {{
+            button_to_click.click();
+        }}
+    }}, {auto_refresh_interval * 1000});
+</script>
+"""
+components.html(html_code, height=0)

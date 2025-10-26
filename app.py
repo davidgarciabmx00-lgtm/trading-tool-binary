@@ -13,6 +13,70 @@ st.set_page_config(layout="wide", initial_sidebar_state="expanded")
 
 st.title("🤖 Herramienta de Trading con Machine Learning")
 
+# --- NUEVO: Función para calcular Soportes y Resistencias ---
+def calculate_support_resistance(df, window=5, threshold_pct=0.5):
+    """
+    Calcula los niveles de soporte y resistencia usando un enfoque de fractales.
+    Un fractal es un pico o valle local.
+    """
+    highs = df['High']
+    lows = df['Low']
+    
+    fractal_highs_idx = []
+    fractal_lows_idx = []
+    
+    # Un pico fractal es más alto que los picos a su alrededor
+    for i in range(window // 2, len(highs) - window // 2):
+        is_high_fractal = True
+        is_low_fractal = True
+        current_high = highs.iloc[i]
+        current_low = lows.iloc[i]
+        
+        for j in range(i - window // 2, i + window // 2 + 1):
+            if j == i:
+                continue
+            if highs.iloc[j] >= current_high:
+                is_high_fractal = False
+            if lows.iloc[j] <= current_low:
+                is_low_fractal = False
+        
+        if is_high_fractal:
+            fractal_highs_idx.append(i)
+        if is_low_fractal:
+            fractal_lows_idx.append(i)
+
+    # Obtener los valores de precio de los fractales
+    fractal_highs = df['High'].iloc[fractal_highs_idx].values
+    fractal_lows = df['Low'].iloc[fractal_lows_idx].values
+    
+    # Agrupar los fractales en niveles para evitar líneas demasiado cercanas
+    def cluster_levels(levels):
+        if not levels.any():
+            return []
+        levels.sort()
+        clustered = []
+        current_cluster = [levels[0]]
+        
+        for i in range(1, len(levels)):
+            # Si el nivel actual está dentro del umbral del promedio del clúster, agruparlo
+            if abs(levels[i] - np.mean(current_cluster)) / np.mean(current_cluster) * 100 < threshold_pct:
+                current_cluster.append(levels[i])
+            else:
+                # De lo contrario, finalizar el clúster actual y empezar uno nuevo
+                clustered.append(np.mean(current_cluster))
+                current_cluster = [levels[i]]
+        
+        # Añadir el último clúster
+        if current_cluster:
+            clustered.append(np.mean(current_cluster))
+            
+        return clustered
+
+    resistance_levels = cluster_levels(fractal_highs)
+    support_levels = cluster_levels(fractal_lows)
+    
+    return support_levels, resistance_levels
+
 # --- 1. CONFIGURACIÓN EN LA BARRA LATERAL ---
 st.sidebar.header("Parámetros de Configuración")
 ACTIVO = st.sidebar.text_input("Símbolo del Activo", value="AAPL")
@@ -355,6 +419,20 @@ if datos_historicos is not None:
             with st.expander("Ver Detalles de Operaciones"):
                 st.dataframe(df_operaciones)
 
+    # --- NUEVO: Cálculo y Filtrado de Soportes y Resistencias ---
+    st.sidebar.subheader("Soportes y Resistencias")
+    # Parámetros para el cálculo de S/R
+    sr_window = st.sidebar.slider("Ventana para Fractales", 5, 21, 5, help="Número de velas para identificar un pico/valle.")
+    sr_threshold = st.sidebar.slider("Umbral de Agrupación (%)", 0.1, 2.0, 0.5, step=0.1, help="Agrupa niveles cercanos. Valor más bajo = más niveles.")
+    
+    support_levels, resistance_levels = calculate_support_resistance(datos_historicos, window=sr_window, threshold_pct=sr_threshold)
+    
+    current_price = datos_historicos['Close'].iloc[-1]
+    # Filtrar niveles para mostrar solo los relevantes (ej. dentro del 10% del precio actual)
+    price_filter_pct = 0.10 # 10%
+    relevant_support = [level for level in support_levels if abs(level - current_price) / current_price < price_filter_pct]
+    relevant_resistance = [level for level in resistance_levels if abs(level - current_price) / current_price < price_filter_pct]
+
     # --- 6. VISUALIZACIÓN ---
     st.header(f"Gráfico de {ACTIVO}")
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.03, 
@@ -368,6 +446,19 @@ if datos_historicos is not None:
     fig.add_trace(go.Scatter(x=datos_historicos[datos_historicos['senal_compra']].index, y=datos_historicos[datos_historicos['senal_compra']]['Close'], mode='markers', marker_symbol='triangle-up', marker_size=12, marker_color='lime', name='Señal Compra (CALL)'), row=1, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos[datos_historicos['senal_venta']].index, y=datos_historicos[datos_historicos['senal_venta']]['Close'], mode='markers', marker_symbol='triangle-down', marker_size=12, marker_color='red', name='Señal Venta (PUT)'), row=1, col=1)
     
+    # --- NUEVO: Dibujar líneas de Soporte y Resistencia ---
+    for level in relevant_resistance:
+        fig.add_hline(y=level, line_width=1.5, line_dash="dot", line_color="red", opacity=0.8, row=1, col=1)
+        fig.add_annotation(x=datos_historicos.index[-1], y=level, text=f"R {level:.2f}", 
+                           showarrow=False, xanchor='left', yanchor='middle', 
+                           font=dict(color="red", size=10), row=1, col=1)
+
+    for level in relevant_support:
+        fig.add_hline(y=level, line_width=1.5, line_dash="dot", line_color="green", opacity=0.8, row=1, col=1)
+        fig.add_annotation(x=datos_historicos.index[-1], y=level, text=f"S {level:.2f}", 
+                           showarrow=False, xanchor='left', yanchor='middle', 
+                           font=dict(color="green", size=10), row=1, col=1)
+
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['RSI_14'], line=dict(color='purple'), name='RSI 14'), row=2, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['STOCHk_14_3_3'], line=dict(color='blue'), name='Stoch %K'), row=2, col=1)
     fig.add_trace(go.Scatter(x=datos_historicos.index, y=datos_historicos['STOCHd_14_3_3'], line=dict(color='red'), name='Stoch %D'), row=2, col=1)
